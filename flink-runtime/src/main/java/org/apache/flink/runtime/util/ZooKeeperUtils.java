@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.util;
 
+import org.apache.curator.framework.state.SessionConnectionStateErrorPolicy;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
@@ -119,6 +120,7 @@ public class ZooKeeperUtils {
 				.connectString(zkQuorum)
 				.sessionTimeoutMs(sessionTimeout)
 				.connectionTimeoutMs(connectionTimeout)
+				.connectionStateErrorPolicy(new SessionConnectionStateErrorPolicy())
 				.retryPolicy(new ExponentialBackoffRetry(retryWait, maxRetryAttempts))
 				// Curator prepends a '/' manually and throws an Exception if the
 				// namespace starts with a '/'.
