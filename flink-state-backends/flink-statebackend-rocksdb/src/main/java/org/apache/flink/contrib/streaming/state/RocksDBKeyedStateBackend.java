@@ -27,10 +27,9 @@ import org.apache.flink.api.common.state.ReducingStateDescriptor;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.api.common.typeutils.CompatibilityResult;
-import org.apache.flink.api.common.typeutils.CompatibilityUtil;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.api.common.typeutils.UnloadableDummyTypeSerializer;
+import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
+import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.api.common.typeutils.base.array.BytePrimitiveArraySerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.ConfigConstants;
@@ -96,6 +95,7 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.Snapshot;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -724,22 +724,15 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 			// that the new serializer for states could be compatible, and therefore the restore can continue
 			// without old serializers required to be present.
 			KeyedBackendSerializationProxy<K> serializationProxy =
-				new KeyedBackendSerializationProxy<>(rocksDBKeyedStateBackend.userCodeClassLoader, false);
+				new KeyedBackendSerializationProxy<>(rocksDBKeyedStateBackend.userCodeClassLoader);
 
 			serializationProxy.read(currentStateHandleInView);
 
 			// check for key serializer compatibility; this also reconfigures the
 			// key serializer to be compatible, if it is required and is possible
-			if (CompatibilityUtil.resolveCompatibilityResult(
-				serializationProxy.restoreKeySerializer(),
-				UnloadableDummyTypeSerializer.class,
-				serializationProxy.getKeySerializerConfigSnapshot(),
-				rocksDBKeyedStateBackend.keySerializer)
-				.isRequiresMigration()) {
-
-				// TODO replace with state migration; note that key hash codes need to remain the same after migration
-				throw new StateMigrationException("The new key serializer is not compatible to read previous keys. " +
-					"Aborting now since state migration is currently not available");
+			if (!serializationProxy.getKeySerializerConfigSnapshot()
+					.resolveSchemaCompatibility(rocksDBKeyedStateBackend.keySerializer).isCompatibleAsIs()) {
+				throw new StateMigrationException("The new key serializer must be compatible.");
 			}
 
 			this.keygroupStreamCompressionDecorator = serializationProxy.isUsingKeyGroupCompression() ?
@@ -761,15 +754,12 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 						nameBytes,
 						rocksDBKeyedStateBackend.columnOptions);
 
-					RegisteredStateMetaInfoBase stateMetaInfo =
-						RegisteredStateMetaInfoBase.fromMetaInfoSnapshot(restoredMetaInfo);
-
 					rocksDBKeyedStateBackend.restoredKvStateMetaInfos.put(restoredMetaInfo.getName(), restoredMetaInfo);
 
 					ColumnFamilyHandle columnFamily = rocksDBKeyedStateBackend.db.createColumnFamily(columnFamilyDescriptor);
 
-					registeredColumn = new Tuple2<>(columnFamily, stateMetaInfo);
-					rocksDBKeyedStateBackend.registerKvStateInformation(stateMetaInfo.getName(), registeredColumn);
+					registeredColumn = new Tuple2<>(columnFamily, null);
+					rocksDBKeyedStateBackend.kvStateInformation.put(restoredMetaInfo.getName(), registeredColumn);
 
 				} else {
 					// TODO with eager state registration in place, check here for serializer migration strategies
@@ -1079,13 +1069,10 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 				stateBackend.kvStateInformation.get(stateMetaInfoSnapshot.getName());
 
 			if (null == registeredStateMetaInfoEntry) {
-				RegisteredStateMetaInfoBase stateMetaInfo =
-					RegisteredStateMetaInfoBase.fromMetaInfoSnapshot(stateMetaInfoSnapshot);
-
 				registeredStateMetaInfoEntry =
 					new Tuple2<>(
 						columnFamilyHandle != null ? columnFamilyHandle : stateBackend.db.createColumnFamily(columnFamilyDescriptor),
-						stateMetaInfo);
+						null);
 
 				stateBackend.registerKvStateInformation(
 					stateMetaInfoSnapshot.getName(),
@@ -1213,12 +1200,10 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 				StateMetaInfoSnapshot stateMetaInfoSnapshot = stateMetaInfoSnapshots.get(i);
 
 				ColumnFamilyHandle columnFamilyHandle = columnFamilyHandles.get(i);
-				RegisteredStateMetaInfoBase stateMetaInfo =
-					RegisteredStateMetaInfoBase.fromMetaInfoSnapshot(stateMetaInfoSnapshot);
 
 				stateBackend.registerKvStateInformation(
 					stateMetaInfoSnapshot.getName(),
-					new Tuple2<>(columnFamilyHandle, stateMetaInfo));
+					new Tuple2<>(columnFamilyHandle, null));
 			}
 
 			// use the restore sst files as the base for succeeding checkpoints
@@ -1275,22 +1260,15 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 				// that the new serializer for states could be compatible, and therefore the restore can continue
 				// without old serializers required to be present.
 				KeyedBackendSerializationProxy<T> serializationProxy =
-					new KeyedBackendSerializationProxy<>(stateBackend.userCodeClassLoader, false);
+					new KeyedBackendSerializationProxy<>(stateBackend.userCodeClassLoader);
 				DataInputView in = new DataInputViewStreamWrapper(inputStream);
 				serializationProxy.read(in);
 
 				// check for key serializer compatibility; this also reconfigures the
 				// key serializer to be compatible, if it is required and is possible
-				if (CompatibilityUtil.resolveCompatibilityResult(
-					serializationProxy.restoreKeySerializer(),
-					UnloadableDummyTypeSerializer.class,
-					serializationProxy.getKeySerializerConfigSnapshot(),
-					stateBackend.keySerializer)
-					.isRequiresMigration()) {
-
-					// TODO replace with state migration; note that key hash codes need to remain the same after migration
-					throw new StateMigrationException("The new key serializer is not compatible to read previous keys. " +
-						"Aborting now since state migration is currently not available");
+				if (!serializationProxy.getKeySerializerConfigSnapshot()
+						.resolveSchemaCompatibility(stateBackend.keySerializer).isCompatibleAsIs()) {
+					throw new StateMigrationException("The new key serializer must be compatible.");
 				}
 
 				return serializationProxy.getStateMetaInfoSnapshots();
@@ -1382,48 +1360,159 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 	 * already have a registered entry for that and return it (after some necessary state compatibility checks)
 	 * or create a new one if it does not exist.
 	 */
-	private <N, S> Tuple2<ColumnFamilyHandle, RegisteredKeyValueStateBackendMetaInfo<N, S>> tryRegisterKvStateInformation(
-			StateDescriptor<?, S> stateDesc,
+	private <N, S extends State, SV> Tuple2<ColumnFamilyHandle, RegisteredKeyValueStateBackendMetaInfo<N, SV>> tryRegisterKvStateInformation(
+			StateDescriptor<S, SV> stateDesc,
 			TypeSerializer<N> namespaceSerializer,
-			@Nullable StateSnapshotTransformer<S> snapshotTransformer) throws StateMigrationException {
+			@Nullable StateSnapshotTransformer<SV> snapshotTransformer) throws Exception {
 
 		Tuple2<ColumnFamilyHandle, RegisteredStateMetaInfoBase> stateInfo =
 			kvStateInformation.get(stateDesc.getName());
 
-		RegisteredKeyValueStateBackendMetaInfo<N, S> newMetaInfo;
+		TypeSerializer<SV> stateSerializer = stateDesc.getSerializer();
+		RegisteredKeyValueStateBackendMetaInfo<N, SV> newMetaInfo = new RegisteredKeyValueStateBackendMetaInfo<>(
+			stateDesc.getType(),
+			stateDesc.getName(),
+			namespaceSerializer,
+			stateSerializer,
+			snapshotTransformer);
+
 		if (stateInfo != null) {
-
-			StateMetaInfoSnapshot restoredMetaInfoSnapshot = restoredKvStateMetaInfos.get(stateDesc.getName());
-
-			Preconditions.checkState(
-				restoredMetaInfoSnapshot != null,
-				"Requested to check compatibility of a restored RegisteredKeyedBackendStateMetaInfo," +
-					" but its corresponding restored snapshot cannot be found.");
-
-			newMetaInfo = RegisteredKeyValueStateBackendMetaInfo.resolveKvStateCompatibility(
-				restoredMetaInfoSnapshot,
-				namespaceSerializer,
+			newMetaInfo = migrateStateIfNecessary(
+				newMetaInfo,
 				stateDesc,
-				snapshotTransformer);
+				namespaceSerializer,
+				stateSerializer,
+				stateInfo);
 
 			stateInfo.f1 = newMetaInfo;
 		} else {
-			String stateName = stateDesc.getName();
-
-			newMetaInfo = new RegisteredKeyValueStateBackendMetaInfo<>(
-				stateDesc.getType(),
-				stateName,
-				namespaceSerializer,
-				stateDesc.getSerializer(),
-				snapshotTransformer);
-
-			ColumnFamilyHandle columnFamily = createColumnFamily(stateName);
+			ColumnFamilyHandle columnFamily = createColumnFamily(stateDesc.getName());
 
 			stateInfo = Tuple2.of(columnFamily, newMetaInfo);
 			registerKvStateInformation(stateDesc.getName(), stateInfo);
 		}
 
 		return Tuple2.of(stateInfo.f0, newMetaInfo);
+	}
+
+	private <N, S extends State, SV> RegisteredKeyValueStateBackendMetaInfo<N, SV> migrateStateIfNecessary(
+			RegisteredKeyValueStateBackendMetaInfo<N, SV> newMetaInfo,
+			StateDescriptor<S, SV> stateDesc,
+			TypeSerializer<N> namespaceSerializer,
+			TypeSerializer<SV> stateSerializer,
+			Tuple2<ColumnFamilyHandle, RegisteredStateMetaInfoBase> stateInfo) throws Exception {
+
+		StateMetaInfoSnapshot restoredMetaInfoSnapshot = restoredKvStateMetaInfos.get(stateDesc.getName());
+
+		Preconditions.checkState(
+			restoredMetaInfoSnapshot != null,
+			"Requested to check compatibility of a restored RegisteredKeyedBackendStateMetaInfo," +
+				" but its corresponding restored snapshot cannot be found.");
+
+		@SuppressWarnings("unchecked")
+		TypeSerializerSnapshot<N> namespaceSerializerSnapshot = Preconditions.checkNotNull(
+			(TypeSerializerSnapshot<N>) restoredMetaInfoSnapshot.getTypeSerializerConfigSnapshot(
+				StateMetaInfoSnapshot.CommonSerializerKeys.NAMESPACE_SERIALIZER.toString()));
+
+		TypeSerializerSchemaCompatibility<N> namespaceCompatibility =
+			namespaceSerializerSnapshot.resolveSchemaCompatibility(namespaceSerializer);
+		if (!namespaceCompatibility.isCompatibleAsIs()) {
+			throw new StateMigrationException("The new namespace serializer must be compatible.");
+		}
+
+		@SuppressWarnings("unchecked")
+		TypeSerializerSnapshot<SV> stateSerializerSnapshot = Preconditions.checkNotNull(
+			(TypeSerializerSnapshot<SV>) restoredMetaInfoSnapshot.getTypeSerializerConfigSnapshot(
+				StateMetaInfoSnapshot.CommonSerializerKeys.VALUE_SERIALIZER.toString()));
+
+		RegisteredKeyValueStateBackendMetaInfo.checkStateMetaInfo(restoredMetaInfoSnapshot, stateDesc);
+
+		TypeSerializerSchemaCompatibility<SV> stateCompatibility =
+			stateSerializerSnapshot.resolveSchemaCompatibility(stateSerializer);
+
+		if (stateCompatibility.isCompatibleAfterMigration()) {
+			migrateStateValues(stateDesc, stateInfo, restoredMetaInfoSnapshot, newMetaInfo, stateSerializer);
+		} else if (stateCompatibility.isIncompatible()) {
+			throw new StateMigrationException("The new state serializer cannot be incompatible.");
+		}
+
+		return newMetaInfo;
+	}
+
+	/**
+	 * Migrate only the state value, that is the "value" that is stored in RocksDB. We don't migrate
+	 * the key here, which is made up of key group, key, namespace and map key
+	 * (in case of MapState).
+	 */
+	private <N, S extends State, SV> void migrateStateValues(
+		StateDescriptor<S, SV> stateDesc,
+		Tuple2<ColumnFamilyHandle, RegisteredStateMetaInfoBase> stateInfo,
+		StateMetaInfoSnapshot restoredMetaInfoSnapshot,
+		RegisteredKeyValueStateBackendMetaInfo<N, SV> newMetaInfo,
+		TypeSerializer<SV> newStateSerializer) throws Exception {
+
+		if (stateDesc.getType() == StateDescriptor.Type.MAP) {
+			throw new StateMigrationException("The new serializer for a MapState requires state migration in order for the job to proceed." +
+				" However, migration for MapState currently isn't supported.");
+		}
+
+		LOG.info(
+			"Performing state migration for state {} because the state serializer's schema, i.e. serialization format, has changed.",
+			stateDesc);
+
+		// we need to get an actual state instance because migration is different
+		// for different state types. For example, ListState needs to deal with
+		// individual elements
+		StateFactory stateFactory = STATE_FACTORIES.get(stateDesc.getClass());
+		if (stateFactory == null) {
+			String message = String.format("State %s is not supported by %s",
+				stateDesc.getClass(), this.getClass());
+			throw new FlinkRuntimeException(message);
+		}
+		State state = stateFactory.createState(
+			stateDesc,
+			Tuple2.of(stateInfo.f0, newMetaInfo),
+			RocksDBKeyedStateBackend.this);
+		if (!(state instanceof AbstractRocksDBState)) {
+			throw new FlinkRuntimeException(
+				"State should be an AbstractRocksDBState but is " + state);
+		}
+
+		@SuppressWarnings("unchecked")
+		AbstractRocksDBState<?, ?, SV, S> rocksDBState = (AbstractRocksDBState<?, ?, SV, S>) state;
+
+		Snapshot rocksDBSnapshot = db.getSnapshot();
+		try (
+			RocksIteratorWrapper iterator = getRocksIterator(db, stateInfo.f0);
+			RocksDBWriteBatchWrapper batchWriter = new RocksDBWriteBatchWrapper(db, getWriteOptions())
+		) {
+			iterator.seekToFirst();
+
+			@SuppressWarnings("unchecked")
+			TypeSerializerSnapshot<SV> priorValueSerializerSnapshot = (TypeSerializerSnapshot<SV>)
+				Preconditions.checkNotNull(restoredMetaInfoSnapshot.getTypeSerializerConfigSnapshot(StateMetaInfoSnapshot.CommonSerializerKeys.VALUE_SERIALIZER));
+			TypeSerializer<SV> priorValueSerializer = priorValueSerializerSnapshot.restoreSerializer();
+
+			DataInputDeserializer serializedValueInput = new DataInputDeserializer();
+			DataOutputSerializer migratedSerializedValueOutput = new DataOutputSerializer(512);
+			while (iterator.isValid()) {
+				serializedValueInput.setBuffer(iterator.value());
+
+				rocksDBState.migrateSerializedValue(
+					serializedValueInput,
+					migratedSerializedValueOutput,
+					priorValueSerializer,
+					newStateSerializer);
+
+				batchWriter.put(stateInfo.f0, iterator.key(), migratedSerializedValueOutput.getCopyOfBuffer());
+
+				migratedSerializedValueOutput.clear();
+				iterator.next();
+			}
+		} finally {
+			db.releaseSnapshot(rocksDBSnapshot);
+			rocksDBSnapshot.close();
+		}
 	}
 
 	/**
@@ -1622,14 +1711,19 @@ public class RocksDBKeyedStateBackend<K> extends AbstractKeyedStateBackend<K> {
 			TypeSerializer<?> metaInfoTypeSerializer = restoredMetaInfoSnapshot.restoreTypeSerializer(serializerKey);
 
 			if (metaInfoTypeSerializer != byteOrderedElementSerializer) {
-				CompatibilityResult<T> compatibilityResult = CompatibilityUtil.resolveCompatibilityResult(
-					metaInfoTypeSerializer,
-					null,
-					restoredMetaInfoSnapshot.getTypeSerializerConfigSnapshot(serializerKey),
-					byteOrderedElementSerializer);
+				@SuppressWarnings("unchecked")
+				TypeSerializerSnapshot<T> serializerSnapshot = Preconditions.checkNotNull(
+					(TypeSerializerSnapshot<T>) restoredMetaInfoSnapshot.getTypeSerializerConfigSnapshot(serializerKey));
 
-				if (compatibilityResult.isRequiresMigration()) {
-					throw new FlinkRuntimeException(StateMigrationException.notSupported());
+				TypeSerializerSchemaCompatibility<T> compatibilityResult =
+					serializerSnapshot.resolveSchemaCompatibility(byteOrderedElementSerializer);
+
+				// Since priority queue elements are written into RocksDB
+				// as keys prefixed with the key group and namespace, we do not support
+				// migrating them. Therefore, here we only check for incompatibility.
+				if (compatibilityResult.isIncompatible()) {
+					throw new FlinkRuntimeException(
+						new StateMigrationException("The new priority queue serializer must not be incompatible."));
 				}
 
 				// update meta info with new serializer

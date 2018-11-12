@@ -42,7 +42,7 @@
 (def deb-mesos-package "1.5.0-2.0.2")
 (def deb-marathon-package "1.6.322")
 
-(def taskmanager-slots 1)
+(def taskmanager-slots 3)
 
 (defn flink-configuration
   [test node]
@@ -57,7 +57,7 @@
    :taskmanager.numberOfTaskSlots      taskmanager-slots
    :yarn.application-attempts          99999
    :slotmanager.taskmanager-timeout    10000
-   :state.backend.local-recovery       "false"
+   :state.backend.local-recovery       "true"
    :taskmanager.registration.timeout   "30 s"})
 
 (defn write-configuration!
@@ -293,7 +293,6 @@
        "-Djobmanager.rpc.port=6123 "
        "-Dmesos.resourcemanager.tasks.mem=2048 "
        "-Dtaskmanager.heap.mb=2048 "
-       "-Dtaskmanager.numberOfTaskSlots=2 "
        "-Dmesos.resourcemanager.tasks.cpus=1 "
        "-Drest.bind-address=$(hostname -f) "))
 
