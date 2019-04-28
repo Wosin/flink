@@ -24,9 +24,9 @@ import org.apache.avro.specific.SpecificRecord;
 import java.io.IOException;
 
 /**
- * Serialization schema that serializes from Avro binary format.
+ * Serialization schema that serializes to Avro binary format.
  *
- * @param <T> type of record it produces
+ * @param <T> the type to be serialized
  */
 public class RegistryAvroSerializationSchema<T> extends AvroSerializationSchema<T> {
 
@@ -41,7 +41,7 @@ public class RegistryAvroSerializationSchema<T> extends AvroSerializationSchema<
 	/**
 	 * Creates Avro Serialization schema.
 	 *
-	 * @param recordClazz         class to which serialize which is
+	 * @param recordClazz         the type to be serialized which is
 	 *                            {@link SpecificRecord}.
 	 * @param schemaCoderProvider schema provider that allows instantiation of {@link SchemaCoder} that will be used for
 	 *                            schema writing

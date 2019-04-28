@@ -33,17 +33,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
 /**
- * Serialization schema that serializes from Avro binary format.
+ * Serialization schema that serializes to Avro binary format.
  *
- * @param <T> type of record it produces
+ * @param <T> the type  to be serialized
  */
 public class AvroSerializationSchema<T> implements SerializationSchema<T> {
 
 	/**
-	 * Creates {@link AvroSerializationSchema} that produces {@link SpecificRecord} using provided schema.
+	 * Creates {@link AvroSerializationSchema} that serializes {@link SpecificRecord} using provided schema.
 	 *
-	 * @param tClass class of record to be produced
-	 * @return topic record in form of {@link SpecificRecord}
+	 * @param tClass the type to be serialized
+	 * @return serialized record in form of byte array
 	 */
 	public static <T extends SpecificRecord> AvroSerializationSchema<T> forSpecific(Class<T> tClass) {
 		return new AvroSerializationSchema<>(tClass);
@@ -52,12 +52,12 @@ public class AvroSerializationSchema<T> implements SerializationSchema<T> {
 	private static final long serialVersionUID = -8766681879020862312L;
 
 	/**
-	 * Class to serialize from.
+	 * Class to serialize to.
 	 */
 	private Class<T> recordClazz;
 
 	/**
-	 * Write the serializes byte array into a record.
+	 * Writer that writes the serialized record to {@link ByteArrayOutputStream}.
 	 */
 	private transient GenericDatumWriter<T> datumWriter;
 
@@ -74,14 +74,13 @@ public class AvroSerializationSchema<T> implements SerializationSchema<T> {
 	/**
 	 * Creates Avro Serialization schema.
 	 *
-	 * @param recordClazz         class to which serialize which is
+	 * @param recordClazz         class which will be serialized, which is
 	 *                            {@link SpecificRecord}.
 	 */
 
 	AvroSerializationSchema(Class<T> recordClazz) {
 		Preconditions.checkNotNull(recordClazz, "Avro record class must not be null.");
 		this.recordClazz = recordClazz;
-
 	}
 
 	BinaryEncoder getEncoder() {
@@ -124,7 +123,6 @@ public class AvroSerializationSchema<T> implements SerializationSchema<T> {
 		if (SpecificRecord.class.isAssignableFrom(recordClazz)) {
 			Schema schema = SpecificData.get().getSchema(recordClazz);
 			this.datumWriter = new SpecificDatumWriter<>(schema);
-
 		} else {
 			this.datumWriter = new GenericDatumWriter<>();
 		}

@@ -26,10 +26,10 @@ import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import org.apache.avro.specific.SpecificRecord;
 
 /**
- * Serialization schema that serializes from Avro binary format that uses
+ * Serialization schema that serializes to Avro binary format that uses
  * Confluent Schema Registry.
  *
- * @param <T> type of record it produces
+ * @param <T> the type to be serialized
  */
 public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSerializationSchema<T> {
 
@@ -40,7 +40,7 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 	/**
 	 * Creates a Avro Serialization schema.
 	 *
-	 * @param recordClazz         class to which serialize which is
+	 * @param recordClazz         class to be serialized, which is
 	 *                            {@link SpecificRecord}.
 	 * @param schemaCoderProvider  provider for schema coder that writes schema from Confluent Schema Registry
 	 */
@@ -49,10 +49,10 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 	}
 
 	/**
-	 * Creates {@link AvroSerializationSchema} that produces classes that were generated from avro
-	 * schema and looks up writer schema in Confluent Schema Registry.
+	 * Creates {@link AvroSerializationSchema} that produces byte arrays that were generated from avro
+	 * schema and writes the writer schema to Confluent Schema Registry.
 	 *
-	 * @param tClass              class of record to be produced
+	 * @param tClass              the type to be serialized
 	 * @param subject             subject of schema registry to produce
 	 * @param schemaRegistryUrl   url of schema registry to connect
 	 *

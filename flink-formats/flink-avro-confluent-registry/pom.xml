@@ -30,7 +30,7 @@ under the License.
 	<artifactId>flink-avro-confluent-registry</artifactId>
 
 	<properties>
-		<confluent.schema.rigestry.version>4.1.0</confluent.schema.rigestry.version>
+		<confluent.schema.registry.version>4.1.0</confluent.schema.registry.version>
 	</properties>
 
 	<repositories>
@@ -44,7 +44,7 @@ under the License.
 		<dependency>
 			<groupId>io.confluent</groupId>
 			<artifactId>kafka-schema-registry-client</artifactId>
-			<version>${confluent.schema.rigestry.version}</version>
+			<version>${confluent.schema.registry.version}</version>
 			<exclusions>
 				<exclusion>
 					<groupId>org.apache.avro</groupId>
