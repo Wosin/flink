@@ -18,12 +18,18 @@
 
 package org.apache.flink.formats.avro.registry.confluent;
 
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.specific.SpecificRecord;
 import org.apache.flink.formats.avro.AvroSerializationSchema;
 import org.apache.flink.formats.avro.RegistryAvroSerializationSchema;
 import org.apache.flink.formats.avro.SchemaCoder;
+import org.apache.flink.util.WrappingRuntimeException;
 
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
-import org.apache.avro.specific.SpecificRecord;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * Serialization schema that serializes to Avro binary format that uses
@@ -38,14 +44,17 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 	private static final long serialVersionUID = -1771641202177852775L;
 
 	/**
-	 * Creates a Avro Serialization schema.
+	 * Creates a Avro serialization schema.
 	 *
-	 * @param recordClazz         class to be serialized, which is
-	 *                            {@link SpecificRecord}.
-	 * @param schemaCoderProvider  provider for schema coder that writes schema from Confluent Schema Registry
+	 * @param recordClazz         class to serialize. Should be either
+	 *                            {@link SpecificRecord} or {@link GenericRecord}.
+	 * @param schema              writer's Avro schema. Should be provided if recordClazz is
+	 *                            {@link GenericRecord}
+	 * @param schemaCoderProvider provider for schema coder that writes the writer schema to Confluent Schema Registry
 	 */
-	private ConfluentRegistryAvroSerializationSchema(Class<T> recordClazz, SchemaCoder.SchemaCoderProvider schemaCoderProvider) {
-		super(recordClazz, schemaCoderProvider);
+	private ConfluentRegistryAvroSerializationSchema(Class<T> recordClazz, Schema schema,
+	 		SchemaCoder.SchemaCoderProvider schemaCoderProvider) {
+		super(recordClazz, schema, schemaCoderProvider);
 	}
 
 	/**
@@ -58,9 +67,30 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 	 *
 	 * @return Serialized record
 	 */
-	public static <T extends SpecificRecord> ConfluentRegistryAvroSerializationSchema<T> forSpecific(Class<T> tClass, String subject, String schemaRegistryUrl) {
+	public static <T extends SpecificRecord> ConfluentRegistryAvroSerializationSchema<T> forSpecific(Class<T> tClass,
+	  		String subject, String schemaRegistryUrl) {
 		return new ConfluentRegistryAvroSerializationSchema<>(
 			tClass,
+			null,
+			new CachedSchemaCoderProvider(subject, schemaRegistryUrl, DEFAULT_IDENTITY_MAP_CAPACITY)
+		);
+	}
+
+	/**
+	 * Creates {@link AvroSerializationSchema} that produces byte arrays that were generated from avro
+	 * schema and writes the writer schema to Confluent Schema Registry.
+	 *
+	 * @param subject             subject of schema registry to produce
+	 * @param schema              schema that will be used for serialization
+	 * @param schemaRegistryUrl   url of schema registry to connect
+	 *
+	 * @return Serialized record in form of byte array
+	 */
+	public static ConfluentRegistryAvroSerializationSchema<GenericRecord> forGeneric(String subject, Schema schema,
+ 			String schemaRegistryUrl) {
+		return new ConfluentRegistryAvroSerializationSchema<>(
+			GenericRecord.class,
+			schema,
 			new CachedSchemaCoderProvider(subject, schemaRegistryUrl, DEFAULT_IDENTITY_MAP_CAPACITY)
 		);
 	}
@@ -84,6 +114,30 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 				url,
 				identityMapCapacity));
 		}
+	}
 
+	@Override
+	public byte[] serialize(T object) {
+		checkAvroInitialized();
+
+		if (object == null) {
+			return null;
+		} else {
+			try {
+				Encoder encoder = getEncoder();
+				int schemaId= schemaCoderProvider.get()
+					.writeSchema(getSchema());
+				byte[] schemaIdBytes = ByteBuffer.allocate(4).putInt(schemaId).array();
+				getOutputStream().write(0);
+				getOutputStream().write(schemaIdBytes);
+				getDatumWriter().write(object, encoder);
+				encoder.flush();
+				byte[] bytes = getOutputStream().toByteArray();
+				getOutputStream().close();
+				return bytes;
+			} catch (IOException e) {
+				throw new WrappingRuntimeException("Failed to serialize schema registry.", e);
+			}
+		}
 	}
 }

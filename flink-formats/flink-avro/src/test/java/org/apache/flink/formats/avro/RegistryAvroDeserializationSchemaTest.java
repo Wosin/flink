@@ -18,18 +18,16 @@
 
 package org.apache.flink.formats.avro;
 
-import org.apache.flink.formats.avro.generated.Address;
-import org.apache.flink.formats.avro.generated.SimpleRecord;
-import org.apache.flink.formats.avro.utils.TestDataGenerator;
-
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.GenericRecordBuilder;
+import org.apache.flink.formats.avro.generated.Address;
+import org.apache.flink.formats.avro.generated.SimpleRecord;
+import org.apache.flink.formats.avro.utils.TestDataGenerator;
 import org.junit.Test;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Random;
@@ -62,8 +60,8 @@ public class RegistryAvroDeserializationSchemaTest {
 				}
 
 				@Override
-				public byte[] writeSchema(Class recordClazz, ByteArrayOutputStream out) {
-					return new byte[0];
+				public int writeSchema(Schema recordClazz) throws IOException {
+					return 1;
 				}
 			}
 		);
@@ -99,8 +97,8 @@ public class RegistryAvroDeserializationSchemaTest {
 				}
 
 				@Override
-				public byte[] writeSchema(Class recordClazz, ByteArrayOutputStream out) {
-					return new byte[0];
+				public int writeSchema(Schema recordClazz) {
+					return 1;
 				}
 			}
 		);

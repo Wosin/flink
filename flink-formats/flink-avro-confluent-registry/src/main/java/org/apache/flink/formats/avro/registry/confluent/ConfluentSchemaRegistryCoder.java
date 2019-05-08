@@ -18,19 +18,14 @@
 
 package org.apache.flink.formats.avro.registry.confluent;
 
-import org.apache.flink.formats.avro.SchemaCoder;
-
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import org.apache.avro.Schema;
-import org.apache.avro.specific.SpecificData;
+import org.apache.flink.formats.avro.SchemaCoder;
 
-import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-
 
 import static java.lang.String.format;
 
@@ -82,18 +77,13 @@ public class ConfluentSchemaRegistryCoder implements SchemaCoder {
 	}
 
 	@Override
-	public byte[] writeSchema(Class tClass, ByteArrayOutputStream out) throws IOException {
-		byte[] bytes;
+	public int writeSchema(Schema schema) throws IOException {
 		try {
-			int schemaId = schemaRegistryClient.register(subject, SpecificData.get().getSchema(tClass));
-			out.write(0);
-			out.write(ByteBuffer.allocate(4).putInt(schemaId).array());
-			bytes = out.toByteArray();
-			out.close();
+			int registeredId = schemaRegistryClient.register(subject,schema);
+			return registeredId;
 		} catch (RestClientException e) {
-			throw new RuntimeException("Failed to serialize schema registry.", e);
+			throw new IOException("Could not register schema in registry", e);
 		}
-		return bytes;
 	}
 
 }
