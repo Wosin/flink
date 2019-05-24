@@ -133,7 +133,7 @@ public class ConfluentRegistryAvroSerializationSchema<T> extends RegistryAvroSer
 				getDatumWriter().write(object, encoder);
 				encoder.flush();
 				byte[] bytes = getOutputStream().toByteArray();
-				getOutputStream().close();
+				getOutputStream().reset();
 				return bytes;
 			} catch (IOException e) {
 				throw new WrappingRuntimeException("Failed to serialize schema registry.", e);

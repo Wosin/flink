@@ -134,7 +134,7 @@ public class AvroSerializationSchema<T> implements SerializationSchema<T> {
 				datumWriter.write(object, encoder);
 				encoder.flush();
 				byte[] bytes = arrayOutputStream.toByteArray();
-				arrayOutputStream.close();
+				arrayOutputStream.reset();
 				return bytes;
 			} catch (IOException e) {
 				throw new WrappingRuntimeException("Failed to serialize schema registry.", e);

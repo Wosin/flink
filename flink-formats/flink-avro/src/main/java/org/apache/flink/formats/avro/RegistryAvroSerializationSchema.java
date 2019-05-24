@@ -78,7 +78,7 @@ public class RegistryAvroSerializationSchema<T> extends AvroSerializationSchema<
 				getDatumWriter().write(object, encoder);
 				encoder.flush();
 				byte[] bytes = getOutputStream().toByteArray();
-				getOutputStream().close();
+				getOutputStream().reset();
 				return bytes;
 			} catch (IOException e) {
 				throw new WrappingRuntimeException("Failed to serialize schema registry.", e);
